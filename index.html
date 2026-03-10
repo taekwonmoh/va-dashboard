@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-<title>VA Weekly Dashboard</title>
+<title>MOHJAM Weekly Dashboard</title>
 
 <!-- Firebase SDK (compat for simple script-tag usage) -->
 <script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
@@ -127,6 +127,21 @@
   .del-btn { background: none; border: none; cursor: pointer; color: var(--gray-300); font-size: 16px; padding: 4px; border-radius: 4px; flex-shrink: 0; margin-top: 2px; }
   .del-btn:hover { color: var(--red); background: #fef2f2; }
 
+  /* Payment tracker */
+  .payment-card { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 20px; margin-bottom: 20px; display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 12px; }
+  .payment-info { display: flex; align-items: center; gap: 14px; }
+  .payment-icon { font-size: 28px; }
+  .payment-details h3 { font-size: 15px; font-weight: 600; margin-bottom: 2px; }
+  .payment-details .due { font-size: 13px; color: var(--gray-500); }
+  .payment-details .overdue { color: var(--red); font-weight: 600; }
+  .payment-right { display: flex; align-items: center; gap: 14px; }
+  .payment-toggle { display: flex; align-items: center; gap: 8px; cursor: pointer; padding: 8px 18px; border-radius: 10px; border: 2px solid var(--gray-200); background: var(--card); font-size: 14px; font-weight: 600; color: var(--gray-500); transition: all 0.2s; }
+  .payment-toggle:hover { border-color: var(--green); }
+  .payment-toggle.paid { background: var(--green-light); border-color: var(--green); color: var(--green); }
+  .payment-toggle .checkmark { width: 22px; height: 22px; border-radius: 6px; border: 2px solid var(--gray-300); display: flex; align-items: center; justify-content: center; font-size: 13px; transition: all 0.15s; }
+  .payment-toggle.paid .checkmark { background: var(--green); border-color: var(--green); color: #fff; }
+  .payment-date { font-size: 12px; color: var(--gray-400); }
+
   /* Last updated */
   .last-updated { text-align: center; font-size: 12px; color: var(--gray-400); padding: 16px; }
 
@@ -200,6 +215,7 @@ const DEFAULT_TASKS = [
 let state = {
   weekOffset: 0, activeTab: 'all', view: 'checklist',
   tasks: [], checks: {}, notes: {}, weeklyNotes: '',
+  payment: null,   // { paid: bool, paidDate: string } for current month
 };
 let debounceTimers = {};
 let activeListeners = [];
@@ -265,6 +281,7 @@ function listenWeekData() {
   activeListeners.push({ ref: wnRef, event: 'value' });
 
   listenTaskDefinitions();
+  listenPayment();
 }
 
 function changeWeek(d) { state.weekOffset += d; listenWeekData(); }
@@ -306,6 +323,44 @@ function updateWeeklyNotes(val) {
     const weekKey = getWeekInfo(state.weekOffset).key;
     fbRef('weeks/' + weekKey + '/weeklyNotes').set(val);
   }, 600);
+}
+
+// ── Payment helpers ──────────────────────────────────
+function getPaymentMonthKey() {
+  const now = new Date();
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+}
+
+function getPaymentDueLabel() {
+  const now = new Date();
+  const due = new Date(now.getFullYear(), now.getMonth(), 1);
+  return due.toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' });
+}
+
+function isPaymentOverdue() {
+  const now = new Date();
+  return now.getDate() > 1 && (!state.payment || !state.payment.paid);
+}
+
+function togglePayment() {
+  const monthKey = getPaymentMonthKey();
+  const isPaid = state.payment && state.payment.paid;
+  if (isPaid) {
+    fbRef(`payments/${monthKey}`).set({ paid: false, paidDate: '' });
+  } else {
+    const now = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+    fbRef(`payments/${monthKey}`).set({ paid: true, paidDate: now });
+  }
+}
+
+function listenPayment() {
+  const monthKey = getPaymentMonthKey();
+  const ref = fbRef(`payments/${monthKey}`);
+  ref.on('value', snap => {
+    state.payment = snap.val();
+    render();
+  });
+  activeListeners.push({ ref, event: 'value' });
 }
 
 function addTaskToCat(catId) {
@@ -358,7 +413,7 @@ function render() {
   }
 
   app.innerHTML = setupBanner +
-    '<div class="header"><h1>\ud83d\udcca <span>VA</span> Weekly Dashboard</h1>' +
+    '<div class="header"><h1>\ud83d\udcca <span>MOHJAM</span> Weekly Dashboard</h1>' +
     '<div class="week-nav"><button onclick="changeWeek(-1)">\u2190 Prev</button>' +
     '<span class="week-label">' + week.label + '</span>' +
     '<button onclick="changeWeek(1)">Next \u2192</button>' +
@@ -422,6 +477,30 @@ function renderTasks() {
       '<button class="add-btn" onclick="addTaskToCat(\'' + cat.id + '\')">Add</button></div></div>';
   });
   return html;
+}
+
+function renderPaymentCard() {
+  const paid = state.payment && state.payment.paid;
+  const paidDate = state.payment && state.payment.paidDate ? state.payment.paidDate : '';
+  const overdue = isPaymentOverdue();
+  const dueLabel = getPaymentDueLabel();
+
+  return `<div class="payment-card">
+    <div class="payment-info">
+      <div class="payment-icon">${paid ? '✅' : '💰'}</div>
+      <div class="payment-details">
+        <h3>VA Payment — ${new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</h3>
+        <div class="due ${overdue && !paid ? 'overdue' : ''}">Due: ${dueLabel}${overdue && !paid ? ' ⚠️ OVERDUE' : ''}</div>
+      </div>
+    </div>
+    <div class="payment-right">
+      <button class="payment-toggle ${paid ? 'paid' : ''}" onclick="togglePayment()">
+        <span class="checkmark">${paid ? '✓' : ''}</span>
+        ${paid ? 'Paid' : 'Mark as Paid'}
+      </button>
+      ${paidDate ? '<span class="payment-date">Paid ' + esc(paidDate) + '</span>' : ''}
+    </div>
+  </div>`;
 }
 
 function updateConnStatus(online) {
