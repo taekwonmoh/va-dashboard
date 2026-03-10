@@ -433,6 +433,7 @@ function render() {
     renderTasks() +
 
     '<div class="weekly-notes"><h3>\ud83d\udcdd Weekly Notes & Priorities</h3><textarea placeholder="Key priorities, blockers, notes for this week..." oninput="updateWeeklyNotes(this.value)">' + esc(state.weeklyNotes) + '</textarea></div>' +
+    renderPaymentCard() +
     '<div class="last-updated">\ud83d\udd04 Synced in real-time via Firebase \u00b7 Week ' + week.key + '</div>';
 }
 
