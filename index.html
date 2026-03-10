@@ -1,0 +1,447 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>VA Weekly Dashboard</title>
+
+<!-- Firebase SDK (compat for simple script-tag usage) -->
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-app-compat.js"></script>
+<script src="https://www.gstatic.com/firebasejs/10.12.0/firebase-database-compat.js"></script>
+
+<style>
+  :root {
+    --bg: #f5f6fa;
+    --card: #ffffff;
+    --primary: #4f46e5;
+    --primary-light: #e0e7ff;
+    --green: #22c55e;
+    --green-light: #dcfce7;
+    --orange: #f59e0b;
+    --orange-light: #fef3c7;
+    --red: #ef4444;
+    --gray-100: #f3f4f6;
+    --gray-200: #e5e7eb;
+    --gray-300: #d1d5db;
+    --gray-400: #9ca3af;
+    --gray-500: #6b7280;
+    --gray-700: #374151;
+    --gray-900: #111827;
+    --shadow: 0 1px 3px rgba(0,0,0,0.08), 0 1px 2px rgba(0,0,0,0.06);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; background: var(--bg); color: var(--gray-900); }
+  .app { max-width: 1200px; margin: 0 auto; padding: 24px 20px; }
+
+  /* Connection status */
+  .conn-status { position: fixed; top: 12px; right: 16px; font-size: 12px; padding: 6px 14px; border-radius: 999px; z-index: 100; font-weight: 600; }
+  .conn-status.online { background: var(--green-light); color: var(--green); }
+  .conn-status.offline { background: #fef2f2; color: var(--red); }
+
+  /* Setup banner */
+  .setup-banner { background: #fef3c7; border: 1px solid #fbbf24; border-radius: 12px; padding: 20px; margin-bottom: 24px; }
+  .setup-banner h3 { color: #92400e; margin-bottom: 8px; font-size: 15px; }
+  .setup-banner p { color: #78350f; font-size: 13px; line-height: 1.6; }
+  .setup-banner code { background: #fde68a; padding: 2px 6px; border-radius: 4px; font-size: 12px; }
+
+  /* Header */
+  .header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 28px; flex-wrap: wrap; gap: 12px; }
+  .header h1 { font-size: 24px; font-weight: 700; color: var(--gray-900); }
+  .header h1 span { color: var(--primary); }
+  .week-nav { display: flex; align-items: center; gap: 10px; }
+  .week-nav button { background: var(--card); border: 1px solid var(--gray-200); border-radius: 8px; padding: 8px 14px; cursor: pointer; font-size: 14px; color: var(--gray-700); transition: all 0.15s; }
+  .week-nav button:hover { background: var(--primary-light); border-color: var(--primary); color: var(--primary); }
+  .week-label { font-size: 15px; font-weight: 600; color: var(--gray-700); min-width: 220px; text-align: center; }
+
+  /* Stats bar */
+  .stats-bar { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 28px; }
+  .stat-card { background: var(--card); border-radius: 12px; padding: 18px 20px; box-shadow: var(--shadow); }
+  .stat-card .label { font-size: 12px; text-transform: uppercase; letter-spacing: 0.5px; color: var(--gray-500); margin-bottom: 6px; }
+  .stat-card .value { font-size: 28px; font-weight: 700; }
+  .stat-card .sub { font-size: 12px; color: var(--gray-400); margin-top: 2px; }
+  .stat-green .value { color: var(--green); }
+  .stat-primary .value { color: var(--primary); }
+  .stat-orange .value { color: var(--orange); }
+  .progress-wrap { background: var(--gray-200); border-radius: 999px; height: 8px; margin-top: 10px; overflow: hidden; }
+  .progress-fill { height: 100%; border-radius: 999px; background: linear-gradient(90deg, var(--primary), var(--green)); transition: width 0.4s ease; }
+
+  /* Tabs */
+  .tabs { display: flex; gap: 4px; margin-bottom: 20px; background: var(--card); border-radius: 12px; padding: 4px; box-shadow: var(--shadow); overflow-x: auto; }
+  .tab { padding: 10px 20px; border-radius: 8px; border: none; background: transparent; cursor: pointer; font-size: 14px; font-weight: 500; color: var(--gray-500); white-space: nowrap; transition: all 0.15s; }
+  .tab.active { background: var(--primary); color: #fff; }
+  .tab:not(.active):hover { background: var(--gray-100); color: var(--gray-700); }
+  .tab .badge { display: inline-block; background: rgba(255,255,255,0.25); border-radius: 999px; padding: 1px 8px; font-size: 11px; margin-left: 6px; }
+  .tab:not(.active) .badge { background: var(--gray-200); color: var(--gray-500); }
+
+  /* View toggle */
+  .view-toggle { display: flex; gap: 4px; }
+  .view-btn { padding: 6px 16px; border-radius: 8px; border: 1px solid var(--gray-200); background: var(--card); cursor: pointer; font-size: 13px; color: var(--gray-500); }
+  .view-btn.active { background: var(--gray-900); color: #fff; border-color: var(--gray-900); }
+
+  /* Task sections */
+  .task-section { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); overflow: hidden; margin-bottom: 20px; }
+  .task-section-header { padding: 16px 20px; border-bottom: 1px solid var(--gray-100); display: flex; justify-content: space-between; align-items: center; }
+  .task-section-header h3 { font-size: 15px; font-weight: 600; }
+  .task-section-header .count { font-size: 12px; color: var(--gray-400); }
+
+  .task-row { display: flex; align-items: flex-start; padding: 14px 20px; border-bottom: 1px solid var(--gray-100); gap: 12px; transition: background 0.1s; }
+  .task-row:last-child { border-bottom: none; }
+  .task-row:hover { background: var(--gray-100); }
+  .task-row.completed { opacity: 0.55; }
+  .task-row.completed .task-name { text-decoration: line-through; }
+
+  .task-check { width: 20px; height: 20px; border-radius: 6px; border: 2px solid var(--gray-300); cursor: pointer; display: flex; align-items: center; justify-content: center; flex-shrink: 0; margin-top: 2px; transition: all 0.15s; }
+  .task-check:hover { border-color: var(--primary); }
+  .task-check.checked { background: var(--green); border-color: var(--green); }
+  .task-check.checked::after { content: '✓'; color: #fff; font-size: 12px; font-weight: 700; }
+
+  .task-info { flex: 1; min-width: 0; }
+  .task-name { font-size: 14px; font-weight: 500; margin-bottom: 2px; }
+  .task-freq { font-size: 11px; color: var(--gray-400); text-transform: uppercase; letter-spacing: 0.3px; }
+
+  .task-note { flex: 0 0 260px; }
+  .task-note textarea { width: 100%; border: 1px solid var(--gray-200); border-radius: 8px; padding: 8px 10px; font-size: 13px; font-family: inherit; resize: vertical; min-height: 36px; max-height: 100px; color: var(--gray-700); transition: border 0.15s; }
+  .task-note textarea:focus { outline: none; border-color: var(--primary); }
+
+  .task-day-checks { display: flex; gap: 4px; flex-shrink: 0; }
+  .day-check { width: 36px; height: 36px; border-radius: 8px; border: 1px solid var(--gray-200); background: var(--card); cursor: pointer; display: flex; align-items: center; justify-content: center; font-size: 10px; font-weight: 600; color: var(--gray-400); transition: all 0.15s; flex-direction: column; gap: 1px; }
+  .day-check:hover { border-color: var(--primary); background: var(--primary-light); }
+  .day-check.checked { background: var(--green-light); border-color: var(--green); color: var(--green); }
+  .day-check .day-label { font-size: 8px; text-transform: uppercase; }
+  .day-check .day-mark { font-size: 14px; }
+
+  /* Add task */
+  .add-task-row { padding: 12px 20px; display: flex; gap: 10px; }
+  .add-task-row input { flex: 1; border: 1px dashed var(--gray-300); border-radius: 8px; padding: 8px 12px; font-size: 13px; font-family: inherit; color: var(--gray-700); }
+  .add-task-row input:focus { outline: none; border-color: var(--primary); border-style: solid; }
+  .add-task-row select { border: 1px solid var(--gray-200); border-radius: 8px; padding: 8px 10px; font-size: 13px; color: var(--gray-500); background: var(--card); }
+  .add-btn { background: var(--primary); color: #fff; border: none; border-radius: 8px; padding: 8px 16px; font-size: 13px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+  .add-btn:hover { opacity: 0.9; }
+
+  /* Weekly notes */
+  .weekly-notes { background: var(--card); border-radius: 12px; box-shadow: var(--shadow); padding: 20px; margin-bottom: 20px; }
+  .weekly-notes h3 { font-size: 15px; font-weight: 600; margin-bottom: 12px; }
+  .weekly-notes textarea { width: 100%; border: 1px solid var(--gray-200); border-radius: 10px; padding: 14px; font-size: 14px; font-family: inherit; min-height: 100px; resize: vertical; color: var(--gray-700); line-height: 1.5; }
+  .weekly-notes textarea:focus { outline: none; border-color: var(--primary); }
+
+  .del-btn { background: none; border: none; cursor: pointer; color: var(--gray-300); font-size: 16px; padding: 4px; border-radius: 4px; flex-shrink: 0; margin-top: 2px; }
+  .del-btn:hover { color: var(--red); background: #fef2f2; }
+
+  /* Last updated */
+  .last-updated { text-align: center; font-size: 12px; color: var(--gray-400); padding: 16px; }
+
+  @media (max-width: 768px) {
+    .task-note { flex: 0 0 150px; }
+    .stats-bar { grid-template-columns: repeat(2, 1fr); }
+    .day-check { width: 30px; height: 30px; }
+  }
+  @media (max-width: 560px) {
+    .task-row { flex-wrap: wrap; }
+    .task-note { flex: 1 1 100%; }
+    .task-day-checks { flex-wrap: wrap; }
+    .header { flex-direction: column; align-items: flex-start; }
+    .week-nav { flex-wrap: wrap; }
+  }
+</style>
+</head>
+<body>
+<div class="conn-status offline" id="connStatus">Connecting...</div>
+<div class="app" id="app"><p style="text-align:center;padding:80px;color:var(--gray-400);">Loading dashboard...</p></div>
+
+<script>
+const firebaseConfig = {
+  apiKey:            "AIzaSyDABx4H7EpCRABaD9h3lGTD3hBp2QFfhQg",
+  authDomain:        "va-dashboard-bf7ca.firebaseapp.com",
+  databaseURL:       "https://va-dashboard-bf7ca-default-rtdb.firebaseio.com",
+  projectId:         "va-dashboard-bf7ca",
+  storageBucket:     "va-dashboard-bf7ca.firebasestorage.app",
+  messagingSenderId: "427134566708",
+  appId:             "1:427134566708:web:1b88d86e9b2fd1505f2561"
+};
+
+const IS_CONFIGURED = !firebaseConfig.apiKey.startsWith('YOUR_');
+
+let db = null;
+if (IS_CONFIGURED) {
+  firebase.initializeApp(firebaseConfig);
+  db = firebase.database();
+}
+
+const CATEGORIES = [
+  { id: 'social', label: 'Social Media', icon: '📱' },
+  { id: 'ads', label: 'Online Ads', icon: '📣' },
+  { id: 'website', label: 'Website', icon: '🌐' },
+  { id: 'admin', label: 'Admin Tasks', icon: '📋' },
+];
+const DAYS = ['Mon','Tue','Wed','Thu','Fri'];
+
+const DEFAULT_TASKS = [
+  { id: 't1',  cat: 'social',  name: 'Create & schedule social posts',       freq: 'daily' },
+  { id: 't2',  cat: 'social',  name: 'Respond to comments & DMs',            freq: 'daily' },
+  { id: 't3',  cat: 'social',  name: 'Track engagement metrics & report',     freq: 'weekly' },
+  { id: 't4',  cat: 'social',  name: 'Research trending content / hashtags',  freq: 'weekly' },
+  { id: 't5',  cat: 'social',  name: 'Content calendar update for next week', freq: 'weekly' },
+  { id: 't6',  cat: 'ads',     name: 'Monitor ad performance & budgets',      freq: 'daily' },
+  { id: 't7',  cat: 'ads',     name: 'Adjust targeting / bids as needed',     freq: 'daily' },
+  { id: 't8',  cat: 'ads',     name: 'Weekly ad performance report',          freq: 'weekly' },
+  { id: 't9',  cat: 'ads',     name: 'A/B test new creatives / copy',         freq: 'weekly' },
+  { id: 't10', cat: 'website', name: 'Check site uptime & fix issues',        freq: 'daily' },
+  { id: 't11', cat: 'website', name: 'Publish / update blog or page content', freq: 'weekly' },
+  { id: 't12', cat: 'website', name: 'Review analytics (traffic, conversions)', freq: 'weekly' },
+  { id: 't13', cat: 'website', name: 'Update plugins / security patches',     freq: 'weekly' },
+  { id: 't14', cat: 'admin',   name: 'Check & organize inbox',                freq: 'daily' },
+  { id: 't15', cat: 'admin',   name: 'Update task tracker / CRM',             freq: 'daily' },
+  { id: 't16', cat: 'admin',   name: 'End-of-day Slack recap to Mike',        freq: 'daily' },
+  { id: 't17', cat: 'admin',   name: 'Weekly priorities planning (Monday)',    freq: 'weekly' },
+  { id: 't18', cat: 'admin',   name: 'Friday wrap-up summary to Mike',        freq: 'weekly' },
+];
+
+let state = {
+  weekOffset: 0, activeTab: 'all', view: 'checklist',
+  tasks: [], checks: {}, notes: {}, weeklyNotes: '',
+};
+let debounceTimers = {};
+let activeListeners = [];
+
+function getWeekInfo(offset) {
+  const now = new Date();
+  const day = now.getDay();
+  const diff = now.getDate() - day + (day === 0 ? -6 : 1) + (offset * 7);
+  const mon = new Date(new Date().setDate(diff));
+  const yr = mon.getFullYear();
+  const jan1 = new Date(yr, 0, 1);
+  const days = Math.floor((mon - jan1) / 86400000);
+  const weekNum = Math.ceil((days + jan1.getDay() + 1) / 7);
+  const key = yr + '-W' + String(weekNum).padStart(2, '0');
+  const fri = new Date(mon); fri.setDate(mon.getDate() + 4);
+  const fmt = d => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return { key, label: fmt(mon) + ' \u2013 ' + fmt(fri) + ', ' + fri.getFullYear() };
+}
+
+function fbRef(path) { return db.ref(path); }
+
+function loadTaskDefinitions() {
+  return new Promise(resolve => {
+    fbRef('tasks').once('value', snap => {
+      const val = snap.val();
+      if (val) { state.tasks = Object.values(val); }
+      else {
+        const tasksObj = {};
+        DEFAULT_TASKS.forEach(t => { tasksObj[t.id] = t; });
+        fbRef('tasks').set(tasksObj);
+        state.tasks = [...DEFAULT_TASKS];
+      }
+      resolve();
+    });
+  });
+}
+
+function listenTaskDefinitions() {
+  const ref = fbRef('tasks');
+  ref.on('value', snap => {
+    const val = snap.val();
+    state.tasks = val ? Object.values(val) : [];
+    render();
+  });
+  activeListeners.push({ ref, event: 'value' });
+}
+
+function listenWeekData() {
+  activeListeners.forEach(l => l.ref.off(l.event));
+  activeListeners = [];
+  const weekKey = getWeekInfo(state.weekOffset).key;
+
+  const checksRef = fbRef('weeks/' + weekKey + '/checks');
+  checksRef.on('value', snap => { state.checks = snap.val() || {}; render(); });
+  activeListeners.push({ ref: checksRef, event: 'value' });
+
+  const notesRef = fbRef('weeks/' + weekKey + '/notes');
+  notesRef.on('value', snap => { state.notes = snap.val() || {}; render(); });
+  activeListeners.push({ ref: notesRef, event: 'value' });
+
+  const wnRef = fbRef('weeks/' + weekKey + '/weeklyNotes');
+  wnRef.on('value', snap => { state.weeklyNotes = snap.val() || ''; render(); });
+  activeListeners.push({ ref: wnRef, event: 'value' });
+
+  listenTaskDefinitions();
+}
+
+function changeWeek(d) { state.weekOffset += d; listenWeekData(); }
+function setTab(t) { state.activeTab = t; render(); }
+function setView(v) { state.view = v; render(); }
+
+function toggleDay(taskId, day) {
+  const weekKey = getWeekInfo(state.weekOffset).key;
+  const current = state.checks[taskId] && state.checks[taskId][day];
+  fbRef('weeks/' + weekKey + '/checks/' + taskId + '/' + day).set(!current);
+}
+
+function toggleAll(taskId) {
+  const t = state.tasks.find(x => x.id === taskId);
+  if (!t) return;
+  const weekKey = getWeekInfo(state.weekOffset).key;
+  if (t.freq === 'weekly') {
+    const current = state.checks[taskId] && state.checks[taskId]['week'];
+    fbRef('weeks/' + weekKey + '/checks/' + taskId + '/week').set(!current);
+  } else {
+    const allDone = DAYS.every(d => state.checks[taskId] && state.checks[taskId][d]);
+    const updates = {};
+    DAYS.forEach(d => { updates[d] = !allDone; });
+    fbRef('weeks/' + weekKey + '/checks/' + taskId).set(updates);
+  }
+}
+
+function updateNote(taskId, val) {
+  clearTimeout(debounceTimers['note_' + taskId]);
+  debounceTimers['note_' + taskId] = setTimeout(() => {
+    const weekKey = getWeekInfo(state.weekOffset).key;
+    fbRef('weeks/' + weekKey + '/notes/' + taskId).set(val);
+  }, 600);
+}
+
+function updateWeeklyNotes(val) {
+  clearTimeout(debounceTimers['weeklyNotes']);
+  debounceTimers['weeklyNotes'] = setTimeout(() => {
+    const weekKey = getWeekInfo(state.weekOffset).key;
+    fbRef('weeks/' + weekKey + '/weeklyNotes').set(val);
+  }, 600);
+}
+
+function addTaskToCat(catId) {
+  const input = document.getElementById('newTaskInput_' + catId);
+  const freqEl = document.getElementById('newTaskFreq_' + catId);
+  const name = input ? input.value.trim() : '';
+  if (!name) return;
+  const freq = freqEl ? freqEl.value : 'daily';
+  const id = 't' + Date.now();
+  fbRef('tasks/' + id).set({ id, cat: catId, name, freq });
+  if (input) input.value = '';
+}
+
+function deleteTask(id) { fbRef('tasks/' + id).remove(); }
+
+function getFilteredTasks() {
+  if (state.activeTab === 'all') return state.tasks;
+  return state.tasks.filter(t => t.cat === state.activeTab);
+}
+function getCatTasks(catId) { return getFilteredTasks().filter(t => t.cat === catId); }
+
+function getStats() {
+  const tasks = getFilteredTasks();
+  let total = 0, done = 0;
+  tasks.forEach(t => {
+    if (t.freq === 'daily') {
+      total += 5;
+      DAYS.forEach(d => { if (state.checks[t.id] && state.checks[t.id][d]) done++; });
+    } else {
+      total += 1;
+      if (state.checks[t.id] && state.checks[t.id]['week']) done++;
+    }
+  });
+  return { total, done, pct: total ? Math.round(done / total * 100) : 0 };
+}
+
+function esc(s) { const d = document.createElement('div'); d.textContent = s || ''; return d.innerHTML; }
+
+function render() {
+  const week = getWeekInfo(state.weekOffset);
+  const stats = getStats();
+  const app = document.getElementById('app');
+  const catCounts = {};
+  CATEGORIES.forEach(c => { catCounts[c.id] = state.tasks.filter(t => t.cat === c.id).length; });
+  const allCount = state.tasks.length;
+
+  let setupBanner = '';
+  if (!IS_CONFIGURED) {
+    setupBanner = '<div class="setup-banner"><h3>\u2699\ufe0f Firebase Not Configured Yet</h3><p>This dashboard is running in <strong>demo mode</strong>.</p></div>';
+  }
+
+  app.innerHTML = setupBanner +
+    '<div class="header"><h1>\ud83d\udcca <span>VA</span> Weekly Dashboard</h1>' +
+    '<div class="week-nav"><button onclick="changeWeek(-1)">\u2190 Prev</button>' +
+    '<span class="week-label">' + week.label + '</span>' +
+    '<button onclick="changeWeek(1)">Next \u2192</button>' +
+    '<button onclick="changeWeek(' + (-state.weekOffset) + ')" style="margin-left:4px">Today</button></div></div>' +
+
+    '<div class="stats-bar">' +
+    '<div class="stat-card stat-green"><div class="label">Completed</div><div class="value">' + stats.done + '<span style="font-size:16px;color:var(--gray-400)">/' + stats.total + '</span></div><div class="progress-wrap"><div class="progress-fill" style="width:' + stats.pct + '%"></div></div></div>' +
+    '<div class="stat-card stat-primary"><div class="label">Completion Rate</div><div class="value">' + stats.pct + '%</div><div class="sub">' + (stats.pct >= 90 ? '\ud83d\udd25 Excellent!' : stats.pct >= 70 ? '\ud83d\udc4d Good progress' : stats.pct >= 40 ? '\ud83d\udcc8 Keep going' : '\ud83d\ude80 Let\'s get started') + '</div></div>' +
+    '<div class="stat-card stat-orange"><div class="label">Remaining</div><div class="value">' + (stats.total - stats.done) + '</div><div class="sub">tasks left this week</div></div>' +
+    '<div class="stat-card"><div class="label">Total Tasks</div><div class="value" style="color:var(--gray-700)">' + allCount + '</div><div class="sub">' + state.tasks.filter(t=>t.freq==='daily').length + ' daily \u00b7 ' + state.tasks.filter(t=>t.freq==='weekly').length + ' weekly</div></div></div>' +
+
+    '<div style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;margin-bottom:4px;">' +
+    '<div class="tabs"><button class="tab ' + (state.activeTab==='all'?'active':'') + '" onclick="setTab(\'all\')">All <span class="badge">' + allCount + '</span></button>' +
+    CATEGORIES.map(c => '<button class="tab ' + (state.activeTab===c.id?'active':'') + '" onclick="setTab(\'' + c.id + '\')">' + c.icon + ' ' + c.label + ' <span class="badge">' + catCounts[c.id] + '</span></button>').join('') + '</div>' +
+    '<div class="view-toggle"><button class="view-btn ' + (state.view==='checklist'?'active':'') + '" onclick="setView(\'checklist\')">\u2705 Checklist</button><button class="view-btn ' + (state.view==='weekly'?'active':'') + '" onclick="setView(\'weekly\')">\ud83d\udcc5 Weekly Grid</button></div></div>' +
+
+    renderTasks() +
+
+    '<div class="weekly-notes"><h3>\ud83d\udcdd Weekly Notes & Priorities</h3><textarea placeholder="Key priorities, blockers, notes for this week..." oninput="updateWeeklyNotes(this.value)">' + esc(state.weeklyNotes) + '</textarea></div>' +
+    '<div class="last-updated">\ud83d\udd04 Synced in real-time via Firebase \u00b7 Week ' + week.key + '</div>';
+}
+
+function renderTasks() {
+  const catsToShow = state.activeTab === 'all' ? CATEGORIES : CATEGORIES.filter(c => c.id === state.activeTab);
+  let html = '';
+  catsToShow.forEach(cat => {
+    const tasks = getCatTasks(cat.id);
+    if (state.activeTab === 'all' && tasks.length === 0) return;
+    let doneCnt = 0, totalCnt = 0;
+    tasks.forEach(t => {
+      if (t.freq === 'daily') { totalCnt += 5; DAYS.forEach(d => { if (state.checks[t.id] && state.checks[t.id][d]) doneCnt++; }); }
+      else { totalCnt += 1; if (state.checks[t.id] && state.checks[t.id]['week']) doneCnt++; }
+    });
+
+    html += '<div class="task-section"><div class="task-section-header"><h3>' + cat.icon + ' ' + cat.label + '</h3><span class="count">' + doneCnt + '/' + totalCnt + ' done</span></div>';
+
+    tasks.forEach(t => {
+      const taskChecks = state.checks[t.id] || {};
+      const taskNote = state.notes[t.id] || '';
+      if (t.freq === 'daily') {
+        const allDone = DAYS.every(d => taskChecks[d]);
+        html += '<div class="task-row ' + (allDone ? 'completed' : '') + '">' +
+          '<div class="task-check ' + (allDone?'checked':'') + '" onclick="toggleAll(\'' + t.id + '\')"></div>' +
+          '<div class="task-info"><div class="task-name">' + esc(t.name) + '</div><div class="task-freq">DAILY \u2014 ' + DAYS.filter(d => taskChecks[d]).length + '/5</div></div>' +
+          '<div class="task-day-checks">' + DAYS.map(d => '<div class="day-check ' + (taskChecks[d]?'checked':'') + '" onclick="toggleDay(\'' + t.id + '\',\'' + d + '\')"><span class="day-label">' + d + '</span><span class="day-mark">' + (taskChecks[d]?'\u2713':'\u00b7') + '</span></div>').join('') + '</div>' +
+          '<div class="task-note"><textarea placeholder="Notes..." oninput="updateNote(\'' + t.id + '\',this.value)">' + esc(taskNote) + '</textarea></div>' +
+          '<button class="del-btn" onclick="deleteTask(\'' + t.id + '\')" title="Remove">\u00d7</button></div>';
+      } else {
+        const isDone = taskChecks['week'];
+        html += '<div class="task-row ' + (isDone ? 'completed' : '') + '">' +
+          '<div class="task-check ' + (isDone?'checked':'') + '" onclick="toggleDay(\'' + t.id + '\',\'week\')"></div>' +
+          '<div class="task-info"><div class="task-name">' + esc(t.name) + '</div><div class="task-freq">WEEKLY</div></div>' +
+          (state.view === 'checklist' ? '<div class="task-day-checks" style="width:188px"></div>' : '') +
+          '<div class="task-note"><textarea placeholder="Notes..." oninput="updateNote(\'' + t.id + '\',this.value)">' + esc(taskNote) + '</textarea></div>' +
+          '<button class="del-btn" onclick="deleteTask(\'' + t.id + '\')" title="Remove">\u00d7</button></div>';
+      }
+    });
+
+    html += '<div class="add-task-row"><input id="newTaskInput_' + cat.id + '" placeholder="+ Add a new task..." onkeydown="if(event.key===\'Enter\')addTaskToCat(\'' + cat.id + '\')" />' +
+      '<select id="newTaskFreq_' + cat.id + '"><option value="daily">Daily</option><option value="weekly">Weekly</option></select>' +
+      '<button class="add-btn" onclick="addTaskToCat(\'' + cat.id + '\')">Add</button></div></div>';
+  });
+  return html;
+}
+
+function updateConnStatus(online) {
+  const el = document.getElementById('connStatus');
+  el.className = 'conn-status ' + (online ? 'online' : 'offline');
+  el.textContent = online ? '\ud83d\udfe2 Synced' : '\ud83d\udd34 Offline';
+}
+
+async function init() {
+  if (IS_CONFIGURED) {
+    db.ref('.info/connected').on('value', snap => updateConnStatus(snap.val()));
+    await loadTaskDefinitions();
+    listenWeekData();
+  } else {
+    state.tasks = [...DEFAULT_TASKS];
+    updateConnStatus(false);
+    render();
+  }
+}
+
+init();
+</script>
+</body>
+</html>
